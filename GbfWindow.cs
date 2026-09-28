@@ -14,6 +14,7 @@ public static class GbfWindow {
     [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
     [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
     [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr dpiContext);
+    [DllImport("user32.dll")] static extern bool PostMessageW(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
     [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hWnd, int attr, out RECT r, int size);
     [DllImport("user32.dll")] static extern IntPtr MonitorFromPoint(POINT pt, uint flags);
     [DllImport("user32.dll")] static extern bool GetMonitorInfoW(IntPtr hMonitor, ref MONITORINFO info);
@@ -82,6 +83,11 @@ public static class GbfWindow {
     public static int LeftOf(IntPtr h) {
         RECT r;
         return GetWindowRect(h, out r) ? r.Left : int.MaxValue;
+    }
+
+    // Ask the window to close, the same as clicking its X button.
+    public static void Close(IntPtr h) {
+        PostMessageW(h, 0x0010 /* WM_CLOSE */, IntPtr.Zero, IntPtr.Zero);
     }
 
     // Put the window's top-left at (x, y) with the given size (GetWindowRect coordinates).

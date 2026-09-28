@@ -16,6 +16,10 @@ public class SettingsForm : Form {
     readonly ComboBox browserBox = new ComboBox();
     readonly TextBox profileBox = new TextBox();
     readonly TextBox urlBox = new TextBox();
+    // GBF windows that were open before the first "起動して試す"; the ones that appear later
+    // are offered to be closed together with this window.
+    HashSet<IntPtr> openBeforeTest;
+
     readonly ComboBox countBox = new ComboBox();
     readonly ListBox layoutList = new ListBox();
 
@@ -74,13 +78,31 @@ public class SettingsForm : Form {
         var buttons = new FlowLayoutPanel { AutoSize = true, Dock = DockStyle.Fill, Margin = new Padding(0, 8, 0, 0) };
         buttons.Controls.Add(MakeButton("今の配置を記録", delegate { RunSelf("record"); }));
         buttons.Controls.Add(MakeButton("記録どおりに並べ直す", delegate { RunSelf("resize"); }));
-        buttons.Controls.Add(MakeButton("起動して試す", delegate { RunSelf("launch " + SelectedCount(), false); }));
+        buttons.Controls.Add(MakeButton("起動して試す", delegate { TestLaunch(); }));
         buttons.Controls.Add(MakeButton("デスクトップにショートカットを作成", delegate { CreateShortcuts(); }));
         grid.Controls.Add(buttons, 0, 6);
         grid.SetColumnSpan(buttons, 3);
 
         LoadIntoForm();
-        FormClosing += delegate { SaveFromForm(); };
+        FormClosing += delegate { SaveFromForm(); CloseTestWindows(); };
+    }
+
+    void TestLaunch() {
+        if (openBeforeTest == null) openBeforeTest = new HashSet<IntPtr>(GbfWindow.FindAll(settings.Titles.ToArray()));
+        RunSelf("launch " + SelectedCount(), false);
+    }
+
+    // Asks before closing: the user may have arranged these very windows and want to keep playing in them.
+    void CloseTestWindows() {
+        if (openBeforeTest == null) return;
+        var opened = new List<IntPtr>();
+        foreach (IntPtr h in GbfWindow.FindAll(settings.Titles.ToArray())) {
+            if (!openBeforeTest.Contains(h)) opened.Add(h);
+        }
+        if (opened.Count == 0) return;
+        string text = string.Format("「起動して試す」で開いた GBF の窓が {0} 個あります。閉じますか?", opened.Count);
+        if (MessageBox.Show(this, text, Text, MessageBoxButtons.YesNo, MessageBoxIcon.Question) != DialogResult.Yes) return;
+        foreach (IntPtr h in opened) GbfWindow.Close(h);
     }
 
     static void AddRow(TableLayoutPanel grid, int row, string label, Control main, Control extra) {
