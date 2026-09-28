@@ -21,10 +21,33 @@ static class Program {
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     static extern int MessageBoxW(IntPtr hWnd, string text, string caption, uint type);
-    [DllImport("user32.dll")]
-    static extern short GetAsyncKeyState(int vKey);
 
-    static bool LeftMouseButtonDown() { return (GetAsyncKeyState(0x01) & 0x8000) != 0; }
+    // Move/size notifications: the user dragging a window's border (or title bar) runs a modal
+    // move/size loop, which starts and ends with these events whatever the drag settings are.
+    delegate void WinEventProc(IntPtr hook, uint evt, IntPtr hwnd, int idObject, int idChild, uint thread, uint time);
+    [DllImport("user32.dll")]
+    static extern IntPtr SetWinEventHook(uint min, uint max, IntPtr module, WinEventProc proc, uint pid, uint tid, uint flags);
+    [DllImport("user32.dll")]
+    static extern bool UnhookWinEvent(IntPtr hook);
+    [StructLayout(LayoutKind.Sequential)]
+    struct MSG { public IntPtr hwnd; public uint message; public IntPtr wParam, lParam; public uint time; public int x, y; }
+    [DllImport("user32.dll")]
+    static extern bool PeekMessageW(out MSG msg, IntPtr hwnd, uint min, uint max, uint remove);
+    [DllImport("user32.dll")]
+    static extern bool TranslateMessage(ref MSG msg);
+    [DllImport("user32.dll")]
+    static extern IntPtr DispatchMessageW(ref MSG msg);
+    const uint EVENT_SYSTEM_MOVESIZESTART = 0x000A, EVENT_SYSTEM_MOVESIZEEND = 0x000B;
+    const uint WINEVENT_OUTOFCONTEXT = 0, WINEVENT_SKIPOWNPROCESS = 2;
+
+    // Out-of-context WinEvents are delivered through this thread's message queue.
+    static void PumpMessages() {
+        MSG msg;
+        while (PeekMessageW(out msg, IntPtr.Zero, 0, 0, 1 /* PM_REMOVE */)) {
+            TranslateMessage(ref msg);
+            DispatchMessageW(ref msg);
+        }
+    }
 
     static string IniPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "GBF.ini");
 
@@ -84,11 +107,31 @@ static class Program {
         var placed = new List<IntPtr>();
         // Where each placed window belongs, as {x, y, width, height}.
         var targets = new List<int[]>();
-        // Windows the user started resizing by hand; they are not forced back any more.
+        // Windows the user resized by hand; they are not forced back any more.
         var released = new HashSet<IntPtr>();
+        // Windows the user is moving or resizing right now -> their size when it started.
+        // They are left alone until the user lets go.
+        var handling = new Dictionary<IntPtr, int[]>();
+        WinEventProc onMoveSize = (hook, evt, hwnd, idObject, idChild, thread, time) => {
+            if (idObject != 0 || !placed.Contains(hwnd)) return;
+            if (evt == EVENT_SYSTEM_MOVESIZESTART) {
+                handling[hwnd] = GbfWindow.Bounds(hwnd);
+            } else if (handling.ContainsKey(hwnd)) {
+                int[] before = handling[hwnd], after = GbfWindow.Bounds(hwnd);
+                handling.Remove(hwnd);
+                // Only moving the window keeps it watched; a new size is the user's choice.
+                if (before != null && after != null && (before[2] != after[2] || before[3] != after[3])) {
+                    released.Add(hwnd);
+                    Log(log, clock, string.Format("released 0x{0:X} (resized by the user)", hwnd.ToInt64()));
+                }
+            }
+        };
+        IntPtr moveSizeHook = SetWinEventHook(EVENT_SYSTEM_MOVESIZESTART, EVENT_SYSTEM_MOVESIZEEND, IntPtr.Zero, onMoveSize,
+                                              0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
         double lastPlacedAt = 0;
         while (clock.Elapsed.TotalSeconds < TimeoutSeconds
                && !(placed.Count >= count && clock.Elapsed.TotalSeconds - lastPlacedAt > WatchSeconds)) {
+            PumpMessages();
             foreach (IntPtr h in GbfWindow.FindAll(titles)) {
                 if (existing.Contains(h)) continue;
                 int slot = placed.IndexOf(h);
@@ -107,22 +150,18 @@ static class Program {
                         targets.Add(w);
                         Log(log, clock, string.Format("placed 0x{0:X} in slot {1}", h.ToInt64(), slot));
                     }
-                } else if (slot < targets.Count && !released.Contains(h)) {
+                } else if (slot < targets.Count && !released.Contains(h) && !handling.ContainsKey(h)) {
+                    // Any other size change is the page's own resizeTo(): put it back.
                     int[] want = targets[slot];
-                    int[] now = GbfWindow.Bounds(h);
-                    if (now == null || (now[2] == want[2] && now[3] == want[3])) continue;
-                    // The page's resizeTo() happens without the mouse; a size change while the left
-                    // button is down is the user dragging the border (e.g. while arranging to record).
-                    if (LeftMouseButtonDown()) {
-                        released.Add(h);
-                        Log(log, clock, string.Format("released 0x{0:X} (user is resizing it)", h.ToInt64()));
-                    } else if (GbfWindow.FitSize(h, want[2], want[3])) {
+                    if (GbfWindow.FitSize(h, want[2], want[3])) {
                         Log(log, clock, string.Format("resized 0x{0:X}", h.ToInt64()));
                     }
                 }
             }
             Thread.Sleep(100);
         }
+        UnhookWinEvent(moveSizeHook);
+        GC.KeepAlive(onMoveSize);
     }
 
     // Starting layout when none is recorded: full work-area height, a GBF-like portrait width
