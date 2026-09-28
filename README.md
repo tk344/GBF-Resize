@@ -19,13 +19,25 @@
 
 - Windows 10 / 11
 - Chromium 系のブラウザ(Chrome、Edge、Iron、Brave、Vivaldi など)。Firefox は `--app` モードがないので使えません
-- ビルドには、Windows に最初から入っている .NET Framework 4.x の C# コンパイラを使います。追加のインストールは必要ありません
 
-## ビルド
+インストールは不要です。
 
-このリポジトリをダウンロードし、`build.cmd` をダブルクリックします。同じフォルダに `GBF.exe` ができます。
+## ダウンロード
 
-exe は配布していません。中身を確かめたうえで、手元でビルドしてください。
+1. [最新版のページ(Releases)](https://github.com/tk344/GBF-Resize/releases/latest) を開きます
+2. ページ下の「Assets」にある `GBF-Resize-v〇〇.zip` をクリックして保存します
+3. 保存した zip を右クリックし、「すべて展開」を選びます。
+   展開先は「ドキュメント」の中など、自分のフォルダにしてください。
+   設定は `GBF.exe` と同じフォルダに保存されるので、`C:\Program Files` の中では動きません
+4. 展開したフォルダの `GBF.exe` をダブルクリックします
+
+初めて起動するときに、青い画面で「Windows によって PC が保護されました」と出ることがあります。
+これは、署名をしていない、まだ使う人の少ないアプリに出る表示です。
+「詳細情報」を押すと出てくる「実行」を押せば起動できます。2回目からは出ません。
+
+> この `GBF.exe` は、このリポジトリで公開しているソースから、GitHub の上(GitHub Actions)でビルドしたものです。
+> 作者の PC でビルドしたものではありません。ビルドの記録は [Actions](https://github.com/tk344/GBF-Resize/actions) で誰でも見られます。
+> 自分でビルドしたい場合は「[自分でビルドする](#自分でビルドする)」を見てください。
 
 ## 使い方
 
@@ -91,6 +103,22 @@ layout2 = -800, 15, 380, 800 | -434, 15, 380, 800
 ゲームの言語を英語にしている場合など、窓のタイトルが「グランブルーファンタジー」でないときは、
 `title` を実際のタイトルに合わせてください。
 
+## 自分でビルドする
+
+配布している exe を使わずに、自分でビルドすることもできます。
+
+1. このページ上の「Code」→「Download ZIP」でソースを保存し、展開します
+2. 展開したフォルダの `build.cmd` をダブルクリックします。同じフォルダに `GBF.exe` ができます
+
+Windows に最初から入っている .NET Framework 4.x の C# コンパイラを使うので、追加のインストールは必要ありません。
+
+配布している exe が、このソースからビルドされたものかを確かめたい場合は、
+[GitHub CLI](https://cli.github.com/) で次のように確かめられます。
+
+```
+gh attestation verify GBF.exe --repo tk344/GBF-Resize
+```
+
 ## 確かめてある環境・まだの環境
 
 - 確かめてある: Windows 11、Chrome、Iron。Edge は、窓のクラス名とタイトルが Chrome と同じで、見分けられることまで
@@ -119,6 +147,7 @@ layout2 = -800, 15, 380, 800 | -434, 15, 380, 800
 | `Browsers.cs` | インストールされている Chromium 系ブラウザの検出 |
 | `GBF.manifest` | exe に埋め込むマニフェスト |
 | `build.cmd` | ビルド用 |
+| `.github/workflows/release.yml` | `v` で始まるタグを push すると、GitHub Actions でビルドして Releases に置く |
 | `devtools/` | コードを直す人向けの検証用スクリプト。使うだけなら不要です([devtools/README.md](devtools/README.md)) |
 
 ## ライセンス

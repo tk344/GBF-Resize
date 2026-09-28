@@ -1,0 +1,60 @@
+# Push a tag like v1.0.0 to build GBF.exe from this repository's source on GitHub's Windows runner
+# and publish it as a release. The build log stays visible in the Actions tab.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write      # create the release
+  id-token: write      # sign the build provenance
+  attestations: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        shell: cmd
+        run: |
+          call build.cmd
+          if not exist GBF.exe exit /b 1
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $name = "GBF-Resize-$env:GITHUB_REF_NAME"
+          New-Item -ItemType Directory $name | Out-Null
+          Copy-Item GBF.exe, README.md, LICENSE $name
+          Compress-Archive $name "$name.zip"
+          "ZIP=$name.zip" >> $env:GITHUB_ENV
+          "EXE_SHA256=$((Get-FileHash GBF.exe -Algorithm SHA256).Hash)" >> $env:GITHUB_ENV
+
+      # Lets anyone check that the exe was built here from this source:
+      #   gh attestation verify GBF.exe --repo <owner>/GBF-Resize
+      # (not available for private repositories on the free plan)
+      - name: Attest build provenance
+        if: ${{ !github.event.repository.private }}
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            GBF.exe
+            ${{ env.ZIP }}
+
+      - name: Create release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $notes = @"
+          このリポジトリのソースから GitHub Actions でビルドした GBF.exe です(ビルドの記録は Actions タブにあります)。
+          使い方は README を見てください。
+
+          GBF.exe の SHA-256: ``$env:EXE_SHA256``
+          "@
+          $flags = @()
+          if ($env:GITHUB_REF_NAME -like "*-*") { $flags += "--prerelease" }
+          gh release create $env:GITHUB_REF_NAME $env:ZIP --title $env:GITHUB_REF_NAME --notes $notes @flags
