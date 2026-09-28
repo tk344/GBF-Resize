@@ -118,3 +118,7 @@ window2 = -434, 15, 380, 800
 ## ライセンス
 
 [MIT License](LICENSE)
+
+---
+
+開発には Claude Code(AI)を使っています。
