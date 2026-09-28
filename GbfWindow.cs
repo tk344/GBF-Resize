@@ -15,7 +15,11 @@ public static class GbfWindow {
     [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
     [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr dpiContext);
     [DllImport("dwmapi.dll")] static extern int DwmGetWindowAttribute(IntPtr hWnd, int attr, out RECT r, int size);
+    [DllImport("user32.dll")] static extern IntPtr MonitorFromPoint(POINT pt, uint flags);
+    [DllImport("user32.dll")] static extern bool GetMonitorInfoW(IntPtr hMonitor, ref MONITORINFO info);
     struct RECT { public int Left, Top, Right, Bottom; }
+    struct POINT { public int X, Y; }
+    struct MONITORINFO { public int cbSize; public RECT rcMonitor, rcWork; public uint dwFlags; }
 
     const uint SWP_NOMOVE = 0x0002, SWP_NOZORDER = 0x0004, SWP_NOACTIVATE = 0x0010;
     const int DWMWA_EXTENDED_FRAME_BOUNDS = 9;
@@ -41,6 +45,13 @@ public static class GbfWindow {
             return true;
         }, IntPtr.Zero);
         return found.ToArray();
+    }
+
+    // Work area (without the taskbar) of the primary monitor as {left, top, right, bottom}.
+    public static int[] PrimaryWorkArea() {
+        var info = new MONITORINFO { cbSize = Marshal.SizeOf(typeof(MONITORINFO)) };
+        GetMonitorInfoW(MonitorFromPoint(new POINT { X = 0, Y = 0 }, 1 /* MONITOR_DEFAULTTOPRIMARY */), ref info);
+        return new[] { info.rcWork.Left, info.rcWork.Top, info.rcWork.Right, info.rcWork.Bottom };
     }
 
     // Outer bounds as {x, y, width, height} (GetWindowRect coordinates, what Place() takes).

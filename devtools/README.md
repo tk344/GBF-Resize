@@ -14,8 +14,8 @@
    profile = Default
    url = file:///<このリポジトリのパス>/devtools/test.html
    title = GBFTEST
-   window1 = 100, 100, 380, 600
-   window2 = 466, 100, 380, 600
+   count = 2
+   layout2 = 100, 100, 380, 600 | 466, 100, 380, 600
    ```
 
 3. コピーした `GBF.exe` で `launch` / `resize` / `record` を実行し、`tframes.ps1` で結果を見ます。

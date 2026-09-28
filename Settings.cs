@@ -7,6 +7,8 @@ using System.Text;
 public class Settings {
     // "グランブルーファンタジー", escaped so the source encoding doesn't matter.
     public const string DefaultTitle = "\u30B0\u30E9\u30F3\u30D6\u30EB\u30FC\u30D5\u30A1\u30F3\u30BF\u30B8\u30FC";
+    // Layouts can be recorded for 1..MaxWindows windows.
+    public const int MaxWindows = 3;
 
     const string ChromePath = @"C:\Program Files\Google\Chrome\Application\chrome.exe";
 
@@ -15,13 +17,32 @@ public class Settings {
     public string Url = "https://game.granbluefantasy.jp/#mypage";
     // Window titles that identify a GBF window (exact match).
     public List<string> Titles = new List<string> { DefaultTitle };
-    // One {x, y, width, height} per window, left to right (GetWindowRect coordinates, physical pixels).
-    public List<int[]> Windows = new List<int[]>();
+    // How many windows "launch" opens when no number is given (the one last chosen in the settings window).
+    public int Count = 1;
+    // Window count -> one {x, y, width, height} per window, left to right (GetWindowRect coordinates, physical pixels).
+    public SortedDictionary<int, List<int[]>> Layouts = new SortedDictionary<int, List<int[]>>();
+
+    public List<int[]> Layout(int count) {
+        List<int[]> layout;
+        return Layouts.TryGetValue(count, out layout) ? layout : null;
+    }
+
+    // The layout to put `count` open windows back into: the one recorded for that many windows,
+    // otherwise the next larger one (its first slots), otherwise the largest one (extra windows stay as they are).
+    public List<int[]> LayoutFor(int count) {
+        List<int[]> best = null;
+        foreach (KeyValuePair<int, List<int[]>> kv in Layouts) {
+            best = kv.Value;
+            if (kv.Key >= count) break;
+        }
+        return best;
+    }
 
     public static Settings Load(string path) {
         var s = new Settings();
-        bool browserSet = false;
-        var windows = new SortedDictionary<int, int[]>();
+        bool browserSet = false, countSet = false;
+        // window1, window2, ... from before layouts were kept per window count.
+        var legacy = new SortedDictionary<int, int[]>();
         string[] lines = File.Exists(path) ? File.ReadAllLines(path, Encoding.UTF8) : new string[0];
         foreach (string raw in lines) {
             string line = raw.Trim();
@@ -35,12 +56,21 @@ public class Settings {
             else if (key == "profile") s.Profile = value;
             else if (key == "url") s.Url = value;
             else if (key == "title") s.Titles = new List<string>(value.Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries));
+            else if (key == "count" && int.TryParse(value, out n)) { s.Count = n; countSet = true; }
+            else if (key.StartsWith("layout") && int.TryParse(key.Substring(6), out n)) {
+                List<int[]> layout = ParseLayout(value);
+                if (layout != null && layout.Count == n) s.Layouts[n] = layout;
+            }
             else if (key.StartsWith("window") && int.TryParse(key.Substring(6), out n)) {
                 int[] rect = ParseRect(value);
-                if (rect != null) windows[n] = rect;
+                if (rect != null) legacy[n] = rect;
             }
         }
-        s.Windows = new List<int[]>(windows.Values);
+        if (legacy.Count > 0 && !s.Layouts.ContainsKey(legacy.Count)) {
+            s.Layouts[legacy.Count] = new List<int[]>(legacy.Values);
+            if (!countSet) s.Count = legacy.Count;
+        }
+        s.Count = Math.Max(1, Math.Min(MaxWindows, s.Count));
         if (!browserSet) s.Browser = DefaultBrowser();
         return s;
     }
@@ -65,12 +95,25 @@ public class Settings {
         sb.AppendLine("# GBF のウィンドウとみなすタイトル(完全一致、| 区切りで複数可)");
         sb.AppendLine("title = " + string.Join("|", Titles));
         sb.AppendLine();
-        sb.AppendLine("# 窓ごとの 左上x, 左上y, 幅, 高さ(物理ピクセル)。左から順に window1, window2, ...");
-        for (int i = 0; i < Windows.Count; i++) {
-            int[] w = Windows[i];
-            sb.AppendLine(string.Format("window{0} = {1}, {2}, {3}, {4}", i + 1, w[0], w[1], w[2], w[3]));
+        sb.AppendLine("# 窓の数を指定せずに launch したときに開く数");
+        sb.AppendLine("count = " + Count);
+        sb.AppendLine("# 窓の数ごとの配置。窓ごとに 左上x, 左上y, 幅, 高さ(物理ピクセル)を、左の窓から順に | で区切って並べる");
+        foreach (KeyValuePair<int, List<int[]>> kv in Layouts) {
+            var rects = new List<string>();
+            foreach (int[] w in kv.Value) rects.Add(string.Format("{0}, {1}, {2}, {3}", w[0], w[1], w[2], w[3]));
+            sb.AppendLine(string.Format("layout{0} = {1}", kv.Key, string.Join(" | ", rects)));
         }
         File.WriteAllText(path, sb.ToString(), new UTF8Encoding(true));
+    }
+
+    static List<int[]> ParseLayout(string value) {
+        var layout = new List<int[]>();
+        foreach (string part in value.Split('|')) {
+            int[] rect = ParseRect(part);
+            if (rect == null) return null;
+            layout.Add(rect);
+        }
+        return layout;
     }
 
     static int[] ParseRect(string value) {
