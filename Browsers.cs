@@ -10,7 +10,69 @@ public class BrowserInfo {
     public override string ToString() { return Name; }
 }
 
+public class ProfileInfo {
+    public string Dir;    // what --profile-directory takes, e.g. "Default", "Profile 1"
+    public string Label;  // what the browser shows, e.g. "Taro (taro@example.com)"
+    public override string ToString() { return Label; }
+}
+
 public static class Browsers {
+    // Where each browser keeps its profiles, below %LOCALAPPDATA% (matched against the exe path).
+    static readonly string[,] UserDataDirs = {
+        { @"\Google\Chrome\", @"Google\Chrome\User Data" },
+        { @"\Microsoft\Edge\", @"Microsoft\Edge\User Data" },
+        { @"\BraveSoftware\Brave-Browser\", @"BraveSoftware\Brave-Browser\User Data" },
+        { @"\Vivaldi\", @"Vivaldi\User Data" },
+        { @"\SRWare Iron", @"Chromium\User Data" },
+    };
+
+    // The browser's profiles in the order it lists them, read from "Local State" in its user data folder.
+    // Empty when the browser is not one of the above or the file can't be read.
+    public static List<ProfileInfo> Profiles(string exe) {
+        var found = new List<ProfileInfo>();
+        string localState = null;
+        for (int i = 0; i < UserDataDirs.GetLength(0); i++) {
+            if (exe.IndexOf(UserDataDirs[i, 0], StringComparison.OrdinalIgnoreCase) >= 0) {
+                localState = System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                                                    UserDataDirs[i, 1], "Local State");
+                break;
+            }
+        }
+        if (localState == null || !File.Exists(localState)) return found;
+        try {
+            var json = new System.Web.Script.Serialization.JavaScriptSerializer { MaxJsonLength = int.MaxValue };
+            var root = (Dictionary<string, object>)json.DeserializeObject(File.ReadAllText(localState, System.Text.Encoding.UTF8));
+            var profile = (Dictionary<string, object>)root["profile"];
+            var cache = (Dictionary<string, object>)profile["info_cache"];
+            var order = new List<string>();
+            object listed;
+            if (profile.TryGetValue("profiles_order", out listed) && listed is object[]) {
+                foreach (object dir in (object[])listed) order.Add(dir as string);
+            }
+            foreach (string dir in cache.Keys) {
+                if (!order.Contains(dir)) order.Add(dir);
+            }
+            foreach (string dir in order) {
+                object entry;
+                if (dir == null || !cache.TryGetValue(dir, out entry)) continue;
+                var info = entry as Dictionary<string, object>;
+                string name = info != null ? Text(info, "name") : "";
+                string account = info != null ? Text(info, "user_name") : "";
+                if (name.Length == 0) name = dir;
+                found.Add(new ProfileInfo { Dir = dir, Label = account.Length > 0 && account != name ? name + " (" + account + ")" : name });
+            }
+        } catch (Exception) {
+            // Unknown format: fall back to typing the folder name by hand.
+            found.Clear();
+        }
+        return found;
+    }
+
+    static string Text(Dictionary<string, object> d, string key) {
+        object v;
+        return d.TryGetValue(key, out v) && v is string ? (string)v : "";
+    }
+
     // Every browser that registers itself as a possible default browser is listed under
     // StartMenuInternet. Gecko-based ones (Firefox and its forks, which ship omni.ja) and
     // Internet Explorer have no --app mode, so they are left out.

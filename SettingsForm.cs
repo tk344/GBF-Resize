@@ -14,7 +14,8 @@ public class SettingsForm : Form {
     Settings settings;
 
     readonly ComboBox browserBox = new ComboBox();
-    readonly TextBox profileBox = new TextBox();
+    // Pick a profile by the name the browser shows, or type the folder name (e.g. "Profile 1").
+    readonly ComboBox profileBox = new ComboBox();
     readonly TextBox urlBox = new TextBox();
     // GBF windows that were open before the first "起動して試す"; the ones that appear later
     // are offered to be closed together with this window.
@@ -58,7 +59,10 @@ public class SettingsForm : Form {
         browse.Click += delegate { BrowseForBrowser(); };
         AddRow(grid, 1, "ブラウザ", browserBox, browse);
 
+        profileBox.DropDownStyle = ComboBoxStyle.DropDown;
         profileBox.Dock = DockStyle.Fill;
+        browserBox.SelectedIndexChanged += delegate { ShowProfiles(ProfileDir()); };
+        browserBox.Leave += delegate { ShowProfiles(ProfileDir()); };
         AddRow(grid, 2, "プロファイル", profileBox, new Label { Text = "空欄なら指定しない", AutoSize = true, Anchor = AnchorStyles.Left });
 
         urlBox.Dock = DockStyle.Fill;
@@ -124,7 +128,7 @@ public class SettingsForm : Form {
             if (string.Equals(b.Path, settings.Browser, StringComparison.OrdinalIgnoreCase)) browserBox.SelectedItem = b;
         }
         if (browserBox.SelectedItem == null) browserBox.Text = settings.Browser;
-        profileBox.Text = settings.Profile;
+        ShowProfiles(settings.Profile);
         urlBox.Text = settings.Url;
         countBox.SelectedIndex = settings.Count - 1;
         ShowLayout();
@@ -132,12 +136,39 @@ public class SettingsForm : Form {
 
     int SelectedCount() { return countBox.SelectedIndex + 1; }
 
+    string BrowserPath() {
+        var picked = browserBox.SelectedItem as BrowserInfo;
+        return picked != null ? picked.Path : browserBox.Text.Trim();
+    }
+
+    // Folder name of the chosen profile: the picked entry's, or whatever was typed.
+    string ProfileDir() {
+        var picked = profileBox.SelectedItem as ProfileInfo;
+        if (picked != null) return picked.Dir;
+        string typed = profileBox.Text.Trim();
+        foreach (ProfileInfo p in profileBox.Items) {
+            if (p.Label == typed) return p.Dir;
+        }
+        return typed;
+    }
+
+    // List the current browser's profiles and select `dir` (shown as typed text if it isn't listed).
+    void ShowProfiles(string dir) {
+        profileBox.Items.Clear();
+        foreach (ProfileInfo p in Browsers.Profiles(BrowserPath())) profileBox.Items.Add(p);
+        foreach (ProfileInfo p in profileBox.Items) {
+            if (p.Dir == dir) { profileBox.SelectedItem = p; return; }
+        }
+        profileBox.Text = dir;
+    }
+
     void ShowLayout() {
         int count = SelectedCount();
         List<int[]> layout = settings.Layout(count);
         layoutList.Items.Clear();
         if (layout == null) {
-            layoutList.Items.Add(string.Format("({0} 窓の配置はまだ記録されていません。起動すると左上から横に並べて開きます)", count));
+            layoutList.Items.Add(string.Format("{0} 窓の配置はまだ記録されていません", count));
+            layoutList.Items.Add("(起動すると左上から横に並べて開きます)");
             return;
         }
         for (int i = 0; i < layout.Count; i++) {
@@ -147,9 +178,8 @@ public class SettingsForm : Form {
     }
 
     void SaveFromForm() {
-        var picked = browserBox.SelectedItem as BrowserInfo;
-        settings.Browser = picked != null ? picked.Path : browserBox.Text.Trim();
-        settings.Profile = profileBox.Text.Trim();
+        settings.Browser = BrowserPath();
+        settings.Profile = ProfileDir();
         settings.Url = urlBox.Text.Trim();
         settings.Count = SelectedCount();
         settings.Save(iniPath);
@@ -160,6 +190,7 @@ public class SettingsForm : Form {
             if (dlg.ShowDialog(this) == DialogResult.OK) {
                 browserBox.SelectedItem = null;
                 browserBox.Text = dlg.FileName;
+                ShowProfiles(ProfileDir());
             }
         }
     }
