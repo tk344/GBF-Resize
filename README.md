@@ -106,6 +106,11 @@ layout2 = -800, 15, 380, 800 | -434, 15, 380, 800
 ゲームの言語を英語にしている場合など、窓のタイトルが「グランブルーファンタジー」でないときは、
 `title` を実際のタイトルに合わせてください。
 
+## 使うのをやめるとき
+
+`GBF.exe` のフォルダと、デスクトップのショートカット(GBF 起動・GBF 並べ直し)を削除してください。
+レジストリなど、ほかの場所には何も書き込んでいません。
+
 ## 自分でビルドする
 
 配布している exe を使わずに、自分でビルドすることもできます。
@@ -150,6 +155,7 @@ gh attestation verify GBF.exe --repo tk344/GBF-Resize
 | `Browsers.cs` | インストールされている Chromium 系ブラウザの検出 |
 | `GBF.manifest` | exe に埋め込むマニフェスト |
 | `build.cmd` | ビルド用 |
+| `package/README.txt` | 配布する zip に入れる、メモ帳で読む人向けの説明 |
 | `.github/workflows/release.yml` | `v` で始まるタグを push すると、GitHub Actions でビルドして Releases に置く |
 | `devtools/` | コードを直す人向けの検証用スクリプト。使うだけなら不要です([devtools/README.md](devtools/README.md)) |
 

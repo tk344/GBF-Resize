@@ -28,7 +28,9 @@ jobs:
         run: |
           $name = "GBF-Resize-$env:GITHUB_REF_NAME"
           New-Item -ItemType Directory $name | Out-Null
-          Copy-Item GBF.exe, README.md, LICENSE $name
+          # Plain .txt files for people who open them in Notepad; README.md stays for the GitHub page.
+          Copy-Item GBF.exe, package\README.txt $name
+          Copy-Item LICENSE "$name\LICENSE.txt"
           Compress-Archive $name "$name.zip"
           "ZIP=$name.zip" >> $env:GITHUB_ENV
           "EXE_SHA256=$((Get-FileHash GBF.exe -Algorithm SHA256).Hash)" >> $env:GITHUB_ENV
