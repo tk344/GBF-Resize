@@ -92,7 +92,8 @@ public class SettingsForm : Form {
     }
 
     void TestLaunch() {
-        if (openBeforeTest == null) openBeforeTest = new HashSet<IntPtr>(GbfWindow.FindAll(settings.Titles.ToArray()));
+        // Every browser window, minimized ones included, so none of them is later taken for a test window.
+        if (openBeforeTest == null) openBeforeTest = new HashSet<IntPtr>(GbfWindow.FindAny(null));
         RunSelf("launch " + SelectedCount(), false);
     }
 
@@ -100,7 +101,7 @@ public class SettingsForm : Form {
     void CloseTestWindows() {
         if (openBeforeTest == null) return;
         var opened = new List<IntPtr>();
-        foreach (IntPtr h in GbfWindow.FindAll(settings.Titles.ToArray())) {
+        foreach (IntPtr h in GbfWindow.FindAny(settings.Titles.ToArray())) {
             if (!openBeforeTest.Contains(h)) opened.Add(h);
         }
         if (opened.Count == 0) return;
@@ -138,7 +139,7 @@ public class SettingsForm : Form {
 
     string BrowserPath() {
         var picked = browserBox.SelectedItem as BrowserInfo;
-        return picked != null ? picked.Path : browserBox.Text.Trim();
+        return picked != null ? picked.Path : Settings.CleanPath(browserBox.Text);
     }
 
     // Folder name of the chosen profile: the picked entry's, or whatever was typed.
@@ -182,7 +183,11 @@ public class SettingsForm : Form {
         settings.Profile = ProfileDir();
         settings.Url = urlBox.Text.Trim();
         settings.Count = SelectedCount();
-        settings.Save(iniPath);
+        try {
+            settings.Save(iniPath);
+        } catch (Exception e) {
+            MessageBox.Show(this, Settings.SaveErrorText(e), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+        }
     }
 
     void BrowseForBrowser() {

@@ -52,10 +52,15 @@ public class Settings {
             string key = line.Substring(0, eq).Trim().ToLowerInvariant();
             string value = line.Substring(eq + 1).Trim();
             int n;
-            if (key == "browser") { s.Browser = value; browserSet = true; }
+            if (key == "browser") { s.Browser = CleanPath(value); browserSet = true; }
             else if (key == "profile") s.Profile = value;
             else if (key == "url") s.Url = value;
-            else if (key == "title") s.Titles = new List<string>(value.Split(new[] { '|' }, StringSplitOptions.RemoveEmptyEntries));
+            else if (key == "title") {
+                s.Titles = new List<string>();
+                foreach (string t in value.Split('|')) {
+                    if (t.Trim().Length > 0) s.Titles.Add(t.Trim());
+                }
+            }
             else if (key == "count" && int.TryParse(value, out n)) { s.Count = n; countSet = true; }
             else if (key.StartsWith("layout") && int.TryParse(key.Substring(6), out n)) {
                 List<int[]> layout = ParseLayout(value);
@@ -73,6 +78,16 @@ public class Settings {
         s.Count = Math.Max(1, Math.Min(MaxWindows, s.Count));
         if (!browserSet) s.Browser = DefaultBrowser();
         return s;
+    }
+
+    // A path as pasted from Explorer's "Copy as path" comes with quotes.
+    public static string CleanPath(string path) {
+        return path.Trim().Trim('"').Trim();
+    }
+
+    // Message for a failed Save (typically GBF.exe placed in a folder the user can't write to).
+    public static string SaveErrorText(Exception e) {
+        return "設定を保存できませんでした。\nGBF.exe を、ドキュメントなど自分で書き込めるフォルダに置いてください。\n\n" + e.Message;
     }
 
     // Chrome if it is in its usual place, otherwise the first Chromium browser found (Edge ships with Windows).

@@ -11,6 +11,7 @@ public static class GbfWindow {
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetClassNameW(IntPtr hWnd, StringBuilder s, int n);
     [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hWnd);
     [DllImport("user32.dll")] static extern bool IsIconic(IntPtr hWnd);
+    [DllImport("user32.dll")] static extern bool IsZoomed(IntPtr hWnd);
     [DllImport("user32.dll")] static extern bool GetWindowRect(IntPtr hWnd, out RECT r);
     [DllImport("user32.dll")] static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
     [DllImport("user32.dll")] static extern IntPtr SetThreadDpiAwarenessContext(IntPtr dpiContext);
@@ -30,19 +31,33 @@ public static class GbfWindow {
         SetThreadDpiAwarenessContext(new IntPtr(-4));
     }
 
-    // Visible, non-minimized Chromium-browser windows (Chrome, Edge, Iron, ... all use the
-    // Chrome_WidgetWin_1 class) whose title is exactly one of `titles`.
+    // Windows to arrange: visible Chromium-browser windows (Chrome, Edge, Iron, ... all use the
+    // Chrome_WidgetWin_1 class) whose title is exactly one of `titles`, neither minimized nor maximized.
     // Enumerates windows directly: Get-Process's MainWindowTitle only exposes one window
     // per process, and Chromium keeps all its windows in one browser process.
     public static IntPtr[] FindAll(params string[] titles) {
-        var wanted = new HashSet<string>(titles);
+        return Find(titles, true);
+    }
+
+    // Every visible Chromium-browser window whose title is one of `titles` (any title when null),
+    // including minimized and maximized ones. Used to remember which windows were already there.
+    public static IntPtr[] FindAny(string[] titles) {
+        return Find(titles, false);
+    }
+
+    static IntPtr[] Find(string[] titles, bool arrangeableOnly) {
+        var wanted = titles != null ? new HashSet<string>(titles) : null;
         var found = new List<IntPtr>();
         EnumWindows((h, l) => {
-            if (!IsWindowVisible(h) || IsIconic(h)) return true;
+            if (!IsWindowVisible(h)) return true;
+            if (arrangeableOnly && (IsIconic(h) || IsZoomed(h))) return true;
             var cls = new StringBuilder(64); GetClassNameW(h, cls, 64);
             if (cls.ToString() != "Chrome_WidgetWin_1") return true;
-            var txt = new StringBuilder(256); GetWindowTextW(h, txt, 256);
-            if (wanted.Contains(txt.ToString())) found.Add(h);
+            if (wanted != null) {
+                var txt = new StringBuilder(256); GetWindowTextW(h, txt, 256);
+                if (!wanted.Contains(txt.ToString())) return true;
+            }
+            found.Add(h);
             return true;
         }, IntPtr.Zero);
         return found.ToArray();
@@ -100,8 +115,11 @@ public static class GbfWindow {
     // so lining windows up by GetWindowRect would leave a visible gap between them.
     public static void PlaceRightOf(IntPtr h, IntPtr left, int y, int width, int height) {
         RECT leftFrame;
-        if (DwmGetWindowAttribute(left, DWMWA_EXTENDED_FRAME_BOUNDS, out leftFrame, Marshal.SizeOf(typeof(RECT))) != 0) {
-            GetWindowRect(left, out leftFrame);
+        if (DwmGetWindowAttribute(left, DWMWA_EXTENDED_FRAME_BOUNDS, out leftFrame, Marshal.SizeOf(typeof(RECT))) != 0
+            && !GetWindowRect(left, out leftFrame)) {
+            // The left window is gone: keep this one where it is and only fix its size.
+            FitSize(h, width, height);
+            return;
         }
         // First place it roughly, then measure its own invisible border (depends on the monitor's DPI) and correct.
         Place(h, leftFrame.Right, y, width, height);

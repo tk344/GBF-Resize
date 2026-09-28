@@ -40,12 +40,25 @@ static class Program {
     const uint EVENT_SYSTEM_MOVESIZESTART = 0x000A, EVENT_SYSTEM_MOVESIZEEND = 0x000B;
     const uint WINEVENT_OUTOFCONTEXT = 0, WINEVENT_SKIPOWNPROCESS = 2;
 
+    [DllImport("user32.dll")]
+    static extern uint MsgWaitForMultipleObjects(uint count, IntPtr handles, bool waitAll, uint milliseconds, uint wakeMask);
+
     // Out-of-context WinEvents are delivered through this thread's message queue.
     static void PumpMessages() {
         MSG msg;
         while (PeekMessageW(out msg, IntPtr.Zero, 0, 0, 1 /* PM_REMOVE */)) {
             TranslateMessage(ref msg);
             DispatchMessageW(ref msg);
+        }
+    }
+
+    // Sleep for `milliseconds`, but handle messages (the move/size events) as soon as they arrive,
+    // so the size at the start of a user's drag is read before the drag changes it.
+    static void WaitPumping(int milliseconds) {
+        var wait = Stopwatch.StartNew();
+        for (long left = milliseconds; left > 0; left = milliseconds - wait.ElapsedMilliseconds) {
+            MsgWaitForMultipleObjects(0, IntPtr.Zero, false, (uint)left, 0x04FF /* QS_ALLINPUT */);
+            PumpMessages();
         }
     }
 
@@ -71,7 +84,19 @@ static class Program {
             else if (int.TryParse(args[i], out n)) count = Math.Max(1, Math.Min(Settings.MaxWindows, n));
         }
 
-        if (mode == "launch") { Launch(s, count, log); return 0; }
+        if (mode == "launch") {
+            // Two launches watching at once would take each other's windows.
+            using (var running = new Mutex(false, "GBF-Resize.launch")) {
+                bool mine;
+                try { mine = running.WaitOne(0); } catch (AbandonedMutexException) { mine = true; }
+                if (!mine) {
+                    MessageBoxW(IntPtr.Zero, "GBF を起動しているところです。窓が並び終わってから、もう一度実行してください。", "GBF-Resize", 0);
+                    return 1;
+                }
+                try { Launch(s, count, log); } finally { running.ReleaseMutex(); }
+            }
+            return 0;
+        }
         if (mode == "resize") { return Resize(s) ? 0 : 1; }
         if (mode == "record") { return Record(s) ? 0 : 1; }
         MessageBoxW(IntPtr.Zero, "使い方: GBF.exe launch [窓の数] | resize | record\n(引数なしで起動すると設定画面が開きます)", "GBF-Resize", 0);
@@ -85,10 +110,15 @@ static class Program {
     static void Launch(Settings s, int count, string log) {
         var clock = Stopwatch.StartNew();
         string[] titles = s.Titles.ToArray();
-        // GBF windows that were already open before this launch are left alone.
-        var existing = new HashSet<IntPtr>(GbfWindow.FindAll(titles));
+        // Browser windows that were already open before this launch are left alone, whatever their
+        // title or state (a minimized or reloading GBF window must not be taken for a new one).
+        var existing = new HashSet<IntPtr>(GbfWindow.FindAny(null));
         List<int[]> layout = s.Layout(count);
 
+        if (!File.Exists(s.Browser)) {
+            MessageBoxW(IntPtr.Zero, "ブラウザが見つかりません。設定画面でブラウザを選び直してください。\n" + s.Browser, "GBF-Resize", 0);
+            return;
+        }
         string args = (s.Profile.Length > 0 ? "--profile-directory=\"" + s.Profile + "\" " : "") + "--app=\"" + s.Url + "\"";
         for (int i = 0; i < count; i++) {
             var psi = new ProcessStartInfo(s.Browser, args);
@@ -158,7 +188,7 @@ static class Program {
                     }
                 }
             }
-            Thread.Sleep(100);
+            WaitPumping(100);
         }
         UnhookWinEvent(moveSizeHook);
         GC.KeepAlive(onMoveSize);
@@ -226,16 +256,25 @@ static class Program {
                 top = b[1];
             } else {
                 if (Math.Abs(b[1] - top) <= SnapDistance) b[1] = top;
-                int gap = f[0] - prevFrame[2];
+                int gap = prevFrame != null ? f[0] - prevFrame[2] : int.MaxValue;
                 if (Math.Abs(gap) <= SnapDistance) b[0] -= gap;
             }
             GbfWindow.Place(windows[i], b[0], b[1], b[2], b[3]);
             layout.Add(b);
-            prevFrame = GbfWindow.VisibleFrame(windows[i]);
+            prevFrame = GbfWindow.VisibleFrame(windows[i]);  // null if the window closed meanwhile
+        }
+        if (layout.Count == 0) {
+            MessageBoxW(IntPtr.Zero, "GBF の窓が見つかりません。GBF を開いて並べてから実行してください。", "GBF-Resize", 0);
+            return false;
         }
         s.Layouts[layout.Count] = layout;
         s.Count = layout.Count;
-        s.Save(IniPath);
+        try {
+            s.Save(IniPath);
+        } catch (Exception e) {
+            MessageBoxW(IntPtr.Zero, Settings.SaveErrorText(e), "GBF-Resize", 0);
+            return false;
+        }
         return true;
     }
 
