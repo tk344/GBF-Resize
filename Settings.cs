@@ -60,6 +60,8 @@ public class Settings {
                 foreach (string t in value.Split('|')) {
                     if (t.Trim().Length > 0) s.Titles.Add(t.Trim());
                 }
+                // Nothing left to match would make every window "not found"; keep the default instead.
+                if (s.Titles.Count == 0) s.Titles.Add(DefaultTitle);
             }
             else if (key == "count" && int.TryParse(value, out n)) { s.Count = n; countSet = true; }
             else if (key.StartsWith("layout") && int.TryParse(key.Substring(6), out n)) {
@@ -118,7 +120,11 @@ public class Settings {
             foreach (int[] w in kv.Value) rects.Add(string.Format("{0}, {1}, {2}, {3}", w[0], w[1], w[2], w[3]));
             sb.AppendLine(string.Format("layout{0} = {1}", kv.Key, string.Join(" | ", rects)));
         }
-        File.WriteAllText(path, sb.ToString(), new UTF8Encoding(true));
+        // Write beside it and swap, so a crash half-way never leaves a truncated GBF.ini.
+        string temp = path + ".tmp";
+        File.WriteAllText(temp, sb.ToString(), new UTF8Encoding(true));
+        if (File.Exists(path)) File.Replace(temp, path, null);
+        else File.Move(temp, path);
     }
 
     static List<int[]> ParseLayout(string value) {

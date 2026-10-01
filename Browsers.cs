@@ -38,7 +38,8 @@ public static class Browsers {
                 break;
             }
         }
-        if (localState == null || !File.Exists(localState)) return found;
+        // Only for installed browsers: a portable copy keeps its profiles elsewhere, not in the folder above.
+        if (localState == null || !IsInstalledPath(exe) || !File.Exists(localState)) return found;
         try {
             var json = new System.Web.Script.Serialization.JavaScriptSerializer { MaxJsonLength = int.MaxValue };
             var root = (Dictionary<string, object>)json.DeserializeObject(File.ReadAllText(localState, System.Text.Encoding.UTF8));
@@ -66,6 +67,17 @@ public static class Browsers {
             found.Clear();
         }
         return found;
+    }
+
+    static bool IsInstalledPath(string exe) {
+        Environment.SpecialFolder[] roots = {
+            Environment.SpecialFolder.ProgramFiles, Environment.SpecialFolder.ProgramFilesX86, Environment.SpecialFolder.LocalApplicationData
+        };
+        foreach (Environment.SpecialFolder root in roots) {
+            string dir = Environment.GetFolderPath(root);
+            if (dir.Length > 0 && exe.StartsWith(dir.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase)) return true;
+        }
+        return false;
     }
 
     static string Text(Dictionary<string, object> d, string key) {

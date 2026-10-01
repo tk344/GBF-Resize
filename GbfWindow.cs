@@ -108,6 +108,18 @@ public static class GbfWindow {
     // Put the window's top-left at (x, y) with the given size (GetWindowRect coordinates).
     public static void Place(IntPtr h, int x, int y, int width, int height) {
         SetWindowPos(h, IntPtr.Zero, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+        // Moving onto a monitor with another display scale makes the browser resize itself (WM_DPICHANGED)
+        // while it handles the move. The window is on that monitor now, so a second try sticks.
+        RECT r;
+        if (GetWindowRect(h, out r) && (r.Left != x || r.Top != y || r.Right - r.Left != width || r.Bottom - r.Top != height)) {
+            SetWindowPos(h, IntPtr.Zero, x, y, width, height, SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+    }
+
+    // Whether the middle of the title-bar strip of a window placed at {x, y, width, height} is on a monitor
+    // that is connected now, i.e. the window could be seen and grabbed there.
+    public static bool IsReachable(int[] w) {
+        return MonitorFromPoint(new POINT { X = w[0] + w[2] / 2, Y = w[1] + 15 }, 0 /* MONITOR_DEFAULTTONULL */) != IntPtr.Zero;
     }
 
     // Place `h` directly to the right of `left`, top at y, so the *visible* frames touch.

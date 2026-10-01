@@ -16,6 +16,8 @@ public class SettingsForm : Form {
     readonly ComboBox browserBox = new ComboBox();
     // Pick a profile by the name the browser shows, or type the folder name (e.g. "Profile 1").
     readonly ComboBox profileBox = new ComboBox();
+    // The browser whose profiles profileBox lists now.
+    string profilesFor;
     readonly TextBox urlBox = new TextBox();
     // GBF windows that were open before the first "起動して試す"; the ones that appear later
     // are offered to be closed together with this window.
@@ -61,8 +63,8 @@ public class SettingsForm : Form {
 
         profileBox.DropDownStyle = ComboBoxStyle.DropDown;
         profileBox.Dock = DockStyle.Fill;
-        browserBox.SelectedIndexChanged += delegate { ShowProfiles(ProfileDir()); };
-        browserBox.Leave += delegate { ShowProfiles(ProfileDir()); };
+        browserBox.SelectedIndexChanged += delegate { BrowserChanged(); };
+        browserBox.Leave += delegate { BrowserChanged(); };
         AddRow(grid, 2, "プロファイル", profileBox, new Label { Text = "空欄なら指定しない", AutoSize = true, Anchor = AnchorStyles.Left });
 
         urlBox.Dock = DockStyle.Fill;
@@ -93,7 +95,8 @@ public class SettingsForm : Form {
                 DialogResult answer = MessageBox.Show(this, "設定が変更されています。保存しますか?", Text,
                                                       MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
                 if (answer == DialogResult.Cancel) { e.Cancel = true; return; }
-                if (answer == DialogResult.Yes) SaveFromForm();
+                // A failed save keeps the window open, so the changes are not lost silently.
+                if (answer == DialogResult.Yes && !SaveFromForm()) { e.Cancel = true; return; }
             }
             CloseTestWindows();
         };
@@ -101,7 +104,7 @@ public class SettingsForm : Form {
 
     // Whether the form differs from what is in GBF.ini (as of the last load or save).
     bool HasUnsavedChanges() {
-        return BrowserPath() != settings.Browser || ProfileDir() != settings.Profile
+        return !string.Equals(BrowserPath(), settings.Browser, StringComparison.OrdinalIgnoreCase) || ProfileDir() != settings.Profile
             || urlBox.Text.Trim() != settings.Url || SelectedCount() != settings.Count;
     }
 
@@ -109,6 +112,19 @@ public class SettingsForm : Form {
         // Every browser window, minimized ones included, so none of them is later taken for a test window.
         if (openBeforeTest == null) openBeforeTest = new HashSet<IntPtr>(GbfWindow.FindAny(null));
         RunSelf("launch " + SelectedCount(), false);
+    }
+
+    // The browser box changed: list the new browser's profiles. A profile folder name that only the
+    // previous browser has would make this one open a fresh, empty profile, so pick its first one instead.
+    void BrowserChanged() {
+        if (string.Equals(BrowserPath(), profilesFor, StringComparison.OrdinalIgnoreCase)) return;
+        string previous = ProfileDir();
+        ShowProfiles(previous);
+        if (previous.Length == 0 || profileBox.Items.Count == 0) return;
+        foreach (ProfileInfo p in profileBox.Items) {
+            if (p.Dir == previous) return;
+        }
+        profileBox.SelectedItem = profileBox.Items[0];
     }
 
     // Asks before closing: the user may have arranged these very windows and want to keep playing in them.
@@ -169,6 +185,7 @@ public class SettingsForm : Form {
 
     // List the current browser's profiles and select `dir` (shown as typed text if it isn't listed).
     void ShowProfiles(string dir) {
+        profilesFor = BrowserPath();
         profileBox.Items.Clear();
         foreach (ProfileInfo p in Browsers.Profiles(BrowserPath())) profileBox.Items.Add(p);
         foreach (ProfileInfo p in profileBox.Items) {
@@ -192,16 +209,24 @@ public class SettingsForm : Form {
         }
     }
 
-    void SaveFromForm() {
-        settings.Browser = BrowserPath();
-        settings.Profile = ProfileDir();
-        settings.Url = urlBox.Text.Trim();
-        settings.Count = SelectedCount();
+    // Writes the four fields of this form into GBF.ini; false (after telling the user) if that failed.
+    // The file is read again first, so layouts recorded since this window opened are not overwritten.
+    // `settings` only changes when the save worked, so a failed save still counts as unsaved changes.
+    bool SaveFromForm() {
         try {
-            settings.Save(iniPath);
+            Settings fresh = Settings.Load(iniPath);
+            fresh.Browser = BrowserPath();
+            fresh.Profile = ProfileDir();
+            fresh.Url = urlBox.Text.Trim();
+            fresh.Count = SelectedCount();
+            fresh.Save(iniPath);
+            settings = fresh;
         } catch (Exception e) {
             MessageBox.Show(this, Settings.SaveErrorText(e), Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return false;
         }
+        ShowLayout();
+        return true;
     }
 
     void BrowseForBrowser() {
@@ -209,14 +234,15 @@ public class SettingsForm : Form {
             if (dlg.ShowDialog(this) == DialogResult.OK) {
                 browserBox.SelectedItem = null;
                 browserBox.Text = dlg.FileName;
-                ShowProfiles(ProfileDir());
+                BrowserChanged();
             }
         }
     }
 
     // Save the form, run "GBF.exe <mode>" and (unless it keeps running, like launch) reload the result.
+    // Nothing is run when the save failed, as the other process would read the old GBF.ini.
     void RunSelf(string mode, bool wait = true) {
-        SaveFromForm();
+        if (!SaveFromForm()) return;
         Process p = Process.Start(Assembly.GetExecutingAssembly().Location, mode);
         if (!wait) return;
         UseWaitCursor = true;
@@ -226,14 +252,19 @@ public class SettingsForm : Form {
     }
 
     void CreateShortcuts() {
-        SaveFromForm();
+        if (!SaveFromForm()) return;
         string exe = Assembly.GetExecutingAssembly().Location;
         string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
         string icon = File.Exists(settings.Browser) ? settings.Browser + ",0" : exe + ",0";
         int count = SelectedCount();
         string launchName = string.Format("GBF 起動 ({0}窓)", count);
-        MakeShortcut(Path.Combine(desktop, launchName + ".lnk"), exe, "launch " + count, icon, string.Format("GBF を {0} 窓、記録した配置で開く", count));
-        MakeShortcut(Path.Combine(desktop, "GBF 並べ直し.lnk"), exe, "resize", exe + ",0", "開いている GBF を、その窓の数で記録した配置に戻す");
+        try {
+            MakeShortcut(Path.Combine(desktop, launchName + ".lnk"), exe, "launch " + count, icon, string.Format("GBF を {0} 窓、記録した配置で開く", count));
+            MakeShortcut(Path.Combine(desktop, "GBF 並べ直し.lnk"), exe, "resize", exe + ",0", "開いている GBF を、その窓の数で記録した配置に戻す");
+        } catch (Exception e) {
+            MessageBox.Show(this, "ショートカットを作れませんでした。\n" + desktop + "\n\n" + e.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
         MessageBox.Show(this, "デスクトップに「" + launchName + "」と「GBF 並べ直し」を作りました。", Text);
     }
 

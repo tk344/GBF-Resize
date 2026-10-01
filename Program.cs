@@ -171,7 +171,8 @@ static class Program {
                     slot = placed.Count - 1;
                     if (slot < count) {
                         int[] w;
-                        if (layout != null) {
+                        // A layout recorded on a monitor that is no longer connected would put the window out of sight.
+                        if (layout != null && GbfWindow.IsReachable(layout[slot])) {
                             w = layout[slot];
                             GbfWindow.Place(h, w[0], w[1], w[2], w[3]);
                         } else {
@@ -225,9 +226,15 @@ static class Program {
             MessageBoxW(IntPtr.Zero, "配置がまだ記録されていません。\nGBF の窓を並べてから、設定画面の「今の配置を記録」を押してください。", "GBF-Resize", 0);
             return false;
         }
+        int offScreen = 0;
         for (int i = 0; i < windows.Count && i < layout.Count; i++) {
             int[] w = layout[i];
+            if (!GbfWindow.IsReachable(w)) { offScreen++; continue; }
             GbfWindow.Place(windows[i], w[0], w[1], w[2], w[3]);
+        }
+        if (offScreen > 0) {
+            MessageBoxW(IntPtr.Zero, string.Format("記録した位置が今のモニターにないため、{0} 個の窓は動かしませんでした。\nモニターの構成が変わったときは、窓を並べてから設定画面の「今の配置を記録」を押し直してください。", offScreen), "GBF-Resize", 0);
+            return false;
         }
         return true;
     }
@@ -285,6 +292,11 @@ static class Program {
     }
 
     static void Log(string path, Stopwatch clock, string msg) {
-        if (path != null) File.AppendAllText(path, string.Format("{0,6} ms  {1}\r\n", clock.ElapsedMilliseconds, msg));
+        if (path == null) return;
+        try {
+            File.AppendAllText(path, string.Format("{0,6} ms  {1}\r\n", clock.ElapsedMilliseconds, msg));
+        } catch (Exception) {
+            // The log is only for diagnosing; a bad --log path must not stop the windows being watched.
+        }
     }
 }
