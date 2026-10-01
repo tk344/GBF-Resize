@@ -88,7 +88,21 @@ public class SettingsForm : Form {
         grid.SetColumnSpan(buttons, 3);
 
         LoadIntoForm();
-        FormClosing += delegate { SaveFromForm(); CloseTestWindows(); };
+        FormClosing += delegate(object sender, FormClosingEventArgs e) {
+            if (HasUnsavedChanges()) {
+                DialogResult answer = MessageBox.Show(this, "設定が変更されています。保存しますか?", Text,
+                                                      MessageBoxButtons.YesNoCancel, MessageBoxIcon.Question);
+                if (answer == DialogResult.Cancel) { e.Cancel = true; return; }
+                if (answer == DialogResult.Yes) SaveFromForm();
+            }
+            CloseTestWindows();
+        };
+    }
+
+    // Whether the form differs from what is in GBF.ini (as of the last load or save).
+    bool HasUnsavedChanges() {
+        return BrowserPath() != settings.Browser || ProfileDir() != settings.Profile
+            || urlBox.Text.Trim() != settings.Url || SelectedCount() != settings.Count;
     }
 
     void TestLaunch() {
